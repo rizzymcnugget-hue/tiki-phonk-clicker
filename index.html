@@ -256,6 +256,60 @@
       margin-bottom: 12px;
     }
 
+    .music-player {
+      background: rgba(52, 217, 255, 0.08);
+      border: 1px solid rgba(52, 217, 255, 0.3);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .music-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .music-btn {
+      flex: 1;
+      border: none;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: rgba(255, 92, 168, 0.2);
+      color: var(--text);
+      border: 1px solid rgba(255, 92, 168, 0.4);
+    }
+
+    .music-btn:hover {
+      background: rgba(255, 92, 168, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .music-btn:active {
+      transform: scale(0.96);
+    }
+
+    .music-btn.active {
+      background: linear-gradient(135deg, var(--primary), #ff8ec0);
+      border-color: var(--primary);
+    }
+
+    .music-info {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+      padding: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 8px;
+    }
+
     .style-list, .shop-list {
       display: flex;
       flex-direction: column;
@@ -376,8 +430,12 @@
       font-size: 18px;
     }
 
-    .hidden {
-      display: none !important;
+    .spacebar-hint {
+      font-size: 9px;
+      color: var(--accent);
+      margin-top: 8px;
+      text-align: center;
+      font-weight: 800;
     }
 
     @media (max-width: 1024px) {
@@ -455,10 +513,22 @@
       <div class="click-zone">
         <button class="click-button" id="clickerBtn" aria-label="Click for vibes">🎧</button>
         <div class="phonk-tag" id="currentStyleName">Pure Phonk</div>
+        <div class="spacebar-hint">Press SPACEBAR to click!</div>
       </div>
     </div>
 
     <div class="sidebar">
+      <div class="panel">
+        <div class="panel-title">🎵 Music Player</div>
+        <div class="music-player">
+          <div class="music-controls">
+            <button id="playMusicBtn" class="music-btn active" onclick="playPhonkMusic()">▶ PLAY</button>
+            <button id="stopMusicBtn" class="music-btn" onclick="stopPhonkMusic()">⏹ STOP</button>
+          </div>
+          <div class="music-info" id="musicInfo">Click PLAY to start the phonk beat</div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-title">🎵 Phonk Styles</div>
         <div id="styleList" class="style-list"></div>
@@ -485,10 +555,9 @@
 
       <div class="panel">
         <div class="info-box">
-          <strong>💡 Tip:</strong> Buy more phonk styles, upgrades, and passive income. Rebirth resets your run but boosts all future gains forever.
+          <strong>💡 Tip:</strong> Buy phonk styles, upgrades, and passive income. Rebirth resets but gives permanent power. Click or press SPACE!
         </div>
         <div style="margin-top: 10px; display: flex; gap: 8px;">
-          <button id="soundToggle" class="big-button secondary-btn">Sound: On</button>
           <button id="resetBtn" class="big-button primary-btn">Reset</button>
         </div>
       </div>
@@ -551,9 +620,129 @@
       rebirthBonus: document.getElementById('rebirthBonus'),
       clickerBtn: document.getElementById('clickerBtn'),
       rebirthBtn: document.getElementById('rebirthBtn'),
-      soundToggle: document.getElementById('soundToggle'),
-      resetBtn: document.getElementById('resetBtn')
+      resetBtn: document.getElementById('resetBtn'),
+      musicInfo: document.getElementById('musicInfo'),
+      playMusicBtn: document.getElementById('playMusicBtn'),
+      stopMusicBtn: document.getElementById('stopMusicBtn')
     };
+
+    let audioCtx = null;
+    let phonkGainNode = null;
+    let isPhonkPlaying = false;
+    let lastClickTime = 0;
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) return null;
+        audioCtx = new AudioCtor();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playTone(type, frequency, duration, volume) {
+      const ctx = ensureAudio();
+      if (!ctx || !game.soundOn) return;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = frequency;
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    }
+
+    function playPhonkMusic() {
+      const ctx = ensureAudio();
+      if (!ctx || !game.soundOn) return;
+
+      if (isPhonkPlaying) return;
+
+      isPhonkPlaying = true;
+      ui.playMusicBtn.classList.add('active');
+      ui.stopMusicBtn.classList.remove('active');
+      ui.musicInfo.textContent = '🎵 Phonk beat playing...';
+
+      if (!phonkGainNode) {
+        phonkGainNode = ctx.createGain();
+        phonkGainNode.gain.value = 0.08;
+        phonkGainNode.connect(ctx.destination);
+      }
+
+      const bassPattern = [48, 48, 36, 36];
+      const drumPattern = [1, 0.5, 0.8, 0.6];
+      let beatIndex = 0;
+      const stepTime = 0.25;
+
+      function playStep() {
+        if (!isPhonkPlaying) return;
+
+        const bass = bassPattern[beatIndex % bassPattern.length];
+        const intensity = drumPattern[beatIndex % drumPattern.length];
+
+        const bassOsc = ctx.createOscillator();
+        const bassGain = ctx.createGain();
+        bassOsc.type = 'sine';
+        bassOsc.frequency.value = bass;
+        bassGain.gain.setValueAtTime(intensity * 0.12, ctx.currentTime);
+        bassGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + stepTime * 0.85);
+        bassOsc.connect(bassGain);
+        bassGain.connect(phonkGainNode);
+        bassOsc.start();
+        bassOsc.stop(ctx.currentTime + stepTime * 0.85);
+
+        const midOsc = ctx.createOscillator();
+        const midGain = ctx.createGain();
+        midOsc.type = 'sawtooth';
+        midOsc.frequency.setValueAtTime(150 + Math.random() * 30, ctx.currentTime);
+        midOsc.frequency.exponentialRampToValueAtTime(30 + Math.random() * 10, ctx.currentTime + stepTime * 0.6);
+        midGain.gain.setValueAtTime(intensity * 0.08, ctx.currentTime);
+        midGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + stepTime * 0.6);
+        midOsc.connect(midGain);
+        midGain.connect(phonkGainNode);
+        midOsc.start();
+        midOsc.stop(ctx.currentTime + stepTime * 0.6);
+
+        if (beatIndex % 4 === 3) {
+          const hiOsc = ctx.createOscillator();
+          const hiGain = ctx.createGain();
+          hiOsc.type = 'triangle';
+          const melodyFreqs = [220, 246.94, 196, 174.61];
+          hiOsc.frequency.value = melodyFreqs[beatIndex % 4];
+          hiGain.gain.setValueAtTime(0.05, ctx.currentTime);
+          hiGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + stepTime * 0.4);
+          hiOsc.connect(hiGain);
+          hiGain.connect(phonkGainNode);
+          hiOsc.start();
+          hiOsc.stop(ctx.currentTime + stepTime * 0.4);
+        }
+
+        beatIndex++;
+        setTimeout(playStep, stepTime * 1000);
+      }
+
+      playStep();
+    }
+
+    function stopPhonkMusic() {
+      isPhonkPlaying = false;
+      ui.playMusicBtn.classList.remove('active');
+      ui.stopMusicBtn.classList.add('active');
+      ui.musicInfo.textContent = '🎵 Music stopped';
+      if (phonkGainNode) {
+        phonkGainNode.gain.exponentialRampToValueAtTime(0.0001, ensureAudio().currentTime + 0.1);
+      }
+    }
 
     function getStyleCost(style) {
       return style.cost;
@@ -598,13 +787,11 @@
       ui.currentStyleName.textContent = getCurrentStyle().name;
       ui.rebirthCount.textContent = game.rebirths;
       ui.rebirthBonus.textContent = 'x' + getRebirthBonus().toFixed(2);
-      ui.soundToggle.textContent = 'Sound: ' + (game.soundOn ? 'On' : 'Off');
     }
 
     function renderStyles() {
       ui.styleList.innerHTML = styles.map(style => {
         const owned = !!game.ownedStyles[style.id];
-        const canBuy = !owned && game.vibes >= style.cost;
         const active = game.currentStyle === style.id;
         const locked = !owned && style.cost > 0;
 
@@ -672,7 +859,7 @@
         game.vibes -= style.cost;
         game.ownedStyles[id] = true;
         game.currentStyle = id;
-        showPulse('+' + style.name, '🎉');
+        showPulse('+' + style.name);
         saveGame();
         updateStats();
         renderStyles();
@@ -687,7 +874,7 @@
       game.vibes -= cost;
       game.clickPower *= upgrade.multiplier;
       game.boughtUpgrades[id] = (game.boughtUpgrades[id] || 0) + 1;
-      showPulse(upgrade.name, upgrade.icon);
+      showPulse(upgrade.name);
       saveGame();
       updateStats();
       renderUpgrades();
@@ -702,16 +889,16 @@
       game.vibes -= cost;
       game.perSecond += auto.baseBoost;
       game.boughtAutos[id] = (game.boughtAutos[id] || 0) + 1;
-      showPulse(auto.name, auto.icon);
+      showPulse(auto.name);
       saveGame();
       updateStats();
       renderAutos();
     }
 
-    function showPulse(label, emoji) {
+    function showPulse(label) {
       const pulse = document.createElement('div');
       pulse.className = 'floating-text';
-      pulse.textContent = label;
+      pulse.textContent = '+' + label;
       pulse.style.left = '50%';
       pulse.style.top = '50%';
       pulse.style.color = '#ffd166';
@@ -725,10 +912,14 @@
     }
 
     function handleClick() {
+      const now = Date.now();
+      if (now - lastClickTime < 50) return;
+      lastClickTime = now;
+
       const gain = getClickValue();
       game.vibes += gain;
       game.totalClicks += 1;
-      showPulse('+' + formatNumber(gain), '🎧');
+      showPulse(formatNumber(gain));
       playTone('sawtooth', 90 + Math.random() * 20, 0.07, 0.05);
       updateStats();
       renderStyles();
@@ -793,20 +984,22 @@
     }
 
     function resetGame() {
-      game.vibes = 0;
-      game.clickPower = 1;
-      game.perSecond = 0;
-      game.totalClicks = 0;
-      game.currentStyle = 0;
-      game.ownedStyles = { 0: true };
-      game.boughtUpgrades = {};
-      game.boughtAutos = {};
-      game.rebirths = 0;
-      saveGame();
-      updateStats();
-      renderStyles();
-      renderUpgrades();
-      renderAutos();
+      if (confirm('Reset your whole current run?')) {
+        game.vibes = 0;
+        game.clickPower = 1;
+        game.perSecond = 0;
+        game.totalClicks = 0;
+        game.currentStyle = 0;
+        game.ownedStyles = { 0: true };
+        game.boughtUpgrades = {};
+        game.boughtAutos = {};
+        game.rebirths = 0;
+        saveGame();
+        updateStats();
+        renderStyles();
+        renderUpgrades();
+        renderAutos();
+      }
     }
 
     function rebirth() {
@@ -827,7 +1020,7 @@
       game.ownedStyles = { 0: true };
       game.boughtUpgrades = {};
       game.boughtAutos = {};
-      showPulse('Reborn + ' + gained, '🚀');
+      showPulse('Reborn + ' + gained);
       saveGame();
       updateStats();
       renderStyles();
@@ -835,65 +1028,15 @@
       renderAutos();
     }
 
-    let audioCtx = null;
-
-    function ensureAudio() {
-      if (!audioCtx) {
-        const AudioCtor = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtor) return null;
-        audioCtx = new AudioCtor();
-      }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      return audioCtx;
-    }
-
-    function playTone(type, frequency, duration, volume) {
-      const ctx = ensureAudio();
-      if (!ctx || !game.soundOn) return;
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = frequency;
-
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration);
-    }
-
-    function startPhonkLoop() {
-      const ctx = ensureAudio();
-      if (!ctx || !game.soundOn) return;
-
-      const beat = () => {
-        if (!game.soundOn) return;
-
-        playTone('sawtooth', 48 + Math.random() * 18, 0.12, 0.04);
-        setTimeout(() => playTone('triangle', 110 + Math.random() * 20, 0.05, 0.03), 50);
-      };
-
-      setInterval(beat, 220);
-    }
-
     ui.clickerBtn.addEventListener('click', handleClick);
     ui.rebirthBtn.addEventListener('click', rebirth);
-    ui.resetBtn.addEventListener('click', () => {
-      if (confirm('Reset your whole current run?')) resetGame();
-    });
-    ui.soundToggle.addEventListener('click', () => {
-      game.soundOn = !game.soundOn;
-      if (game.soundOn) {
-        ensureAudio();
+    ui.resetBtn.addEventListener('click', resetGame);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleClick();
       }
-      saveGame();
-      updateStats();
     });
 
     loadGame();
@@ -901,7 +1044,6 @@
     renderStyles();
     renderUpgrades();
     renderAutos();
-    startPhonkLoop();
     setInterval(gameLoop, 100);
   </script>
 </body>
